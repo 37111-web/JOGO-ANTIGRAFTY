@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Fuga das Sombras - Labirinto de Sobrevivência</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👹</text></svg>">
+</head>
+<body>
+  <!-- Container Principal do Jogo -->
+  <div id="gameWrapper">
+    <!-- Canvas de Renderização do Jogo -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Camadas de Pós-Processamento Visual -->
+    <div id="vignette"></div>
+    <div id="dangerOverlay"></div>
+    <div id="hidingDarkness"></div>
+    <div id="smokeOverlay"></div>
+
+    <!-- HUD Superior e Elementos de Status -->
+    <div id="hud" class="hud-layer hidden">
+      <!-- Canto Superior Esquerdo: Vida e Stamina -->
+      <div class="hud-top-left">
+        <div class="status-bar-container">
+          <div class="bar-header">
+            <span class="bar-icon">❤️</span>
+            <span class="bar-label">ENERGIA</span>
+            <span id="healthValue" class="bar-value">100%</span>
+          </div>
+          <div class="bar-track">
+            <div id="healthFill" class="bar-fill health-fill" style="width: 100%;"></div>
+          </div>
+        </div>
+
+        <div class="status-bar-container">
+          <div class="bar-header">
+            <span class="bar-icon">⚡</span>
+            <span class="bar-label">STAMINA</span>
+            <span id="staminaValue" class="bar-value">100%</span>
+          </div>
+          <div class="bar-track">
+            <div id="staminaFill" class="bar-fill stamina-fill" style="width: 100%;"></div>
+          </div>
+        </div>
+
+        <!-- Indicadores de Efeitos Ativos (Buffs) -->
+        <div id="activeBuffs" class="active-buffs">
+          <div id="buffSpeed" class="buff-item hidden" title="Velocidade Aumentada">⚡ <span id="buffSpeedTimer">0s</span></div>
+          <div id="buffFlashlight" class="buff-item hidden" title="Lanterna Potente">🔦 <span id="buffFlashlightTimer">0s</span></div>
+          <div id="buffCompass" class="buff-item hidden" title="Bússola Ativa">🧭 <span id="buffCompassTimer">0s</span></div>
+          <div id="buffHidden" class="buff-item buff-hidden-tag hidden" title="Escondido">🫥 ESCONDIDO</div>
+        </div>
+      </div>
+
+      <!-- Centro Superior: Alertas de Tensão e Esconderijo -->
+      <div class="hud-top-center">
+        <div id="dangerAlert" class="alert-banner danger-banner hidden">
+          <span class="pulse-icon">⚠️</span> ELE ESTÁ PERTO! <span class="pulse-icon">⚠️</span>
+        </div>
+        <div id="idleWarning" class="alert-banner warning-banner hidden">
+          ⚠️ VOCÊ ESTÁ PARADO HÁ MUITO TEMPO! ELE ESTÁ TE RASTREANDO!
+        </div>
+        <div id="hidingAlert" class="alert-banner hiding-banner hidden">
+          🫥 VOCÊ ESTÁ ESCONDIDO • Pressione [E] para sair
+        </div>
+      </div>
+
+      <!-- Canto Superior Direito: Tempo, Itens e Controles Utilitários -->
+      <div class="hud-top-right">
+        <div class="timer-box">
+          <span class="timer-icon">⏱️</span>
+          <span id="gameTimer" class="timer-text">00:00</span>
+        </div>
+
+        <!-- Inventário e Itens -->
+        <div class="inventory-container">
+          <div class="inventory-title">INVENTÁRIO</div>
+          <div class="inventory-slots">
+            <div id="slotKey" class="item-slot" title="Chave da Saída">
+              <span class="slot-icon">🗝️</span>
+              <span id="keyStatus" class="slot-badge missing">0/1</span>
+            </div>
+            <div id="slotSmoke" class="item-slot" title="Bomba de Fumaça (Espaço)">
+              <span class="slot-icon">💨</span>
+              <span id="smokeCount" class="slot-badge">0</span>
+            </div>
+            <div id="slotFlashlight" class="item-slot" title="Bateria da Lanterna">
+              <span class="slot-icon">🔦</span>
+              <span id="flashlightStatus" class="slot-badge">OFF</span>
+            </div>
+            <div id="slotCompass" class="item-slot" title="Bússola da Saída">
+              <span class="slot-icon">🧭</span>
+              <span id="compassStatus" class="slot-badge">OFF</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Botões de Utilitários (Áudio e Minimapa) -->
+        <div class="hud-utils">
+          <button id="btnAudioToggle" class="btn-icon" title="Alternar Som" aria-label="Som">🔊</button>
+          <button id="btnMinimapToggle" class="btn-icon" title="Alternar Minimapa (M)" aria-label="Minimapa">🗺️</button>
+        </div>
+      </div>
+
+      <!-- Prompt de Interação Contextual -->
+      <div id="interactionPrompt" class="interaction-prompt hidden">
+        <span class="prompt-key">E</span>
+        <span id="promptText" class="prompt-text">Interagir</span>
+      </div>
+
+      <!-- Barra de Objetivo Inferior -->
+      <div class="hud-bottom-bar">
+        <div class="objective-tracker">
+          <span class="objective-icon">🎯</span>
+          <span id="objectiveText" class="objective-text">Encontre a Chave e fuja pela Saída!</span>
+        </div>
+        <div class="desktop-controls-hint">
+          <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>Setas</kbd> Mover</span>
+          <span><kbd>Shift</kbd> Correr</span>
+          <span><kbd>E</kbd> Interagir</span>
+          <span><kbd>Espaço</kbd> Fumaça</span>
+          <span><kbd>M</kbd> Minimapa</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Minimapa Suspenso / Radar -->
+    <div id="minimapContainer" class="minimap-container hidden">
+      <div class="minimap-header">
+        <span>RADAR DO LABIRINTO</span>
+        <button id="btnCloseMinimap" class="btn-close-mini">✕</button>
+      </div>
+      <canvas id="minimapCanvas" width="160" height="160"></canvas>
+      <div class="minimap-legend">
+        <span><i class="dot player-dot"></i> Você</span>
+        <span><i class="dot exit-dot"></i> Saída</span>
+        <span><i class="dot key-dot"></i> Chave</span>
+      </div>
+    </div>
+
+    <!-- Notificação Flutuante de Dica / Mensagem das Paredes -->
+    <div id="clueToast" class="clue-toast hidden">
+      <div class="clue-toast-header">
+        <span class="clue-icon">📜</span>
+        <span id="clueTitle">Inscrição nas Paredes</span>
+        <button id="btnCloseClue" class="btn-close-clue">✕</button>
+      </div>
+      <p id="clueMessage" class="clue-message">"A escuridão sussurra segredos..."</p>
+    </div>
+
+    <!-- Controles Virtuais para Dispositivos Móveis e Touch -->
+    <div id="mobileControls" class="mobile-controls hidden">
+      <!-- Joystick Analógico Virtual à Esquerda -->
+      <div id="touchJoystickZone" class="joystick-zone">
+        <div id="joystickBase" class="joystick-base">
+          <div id="joystickStick" class="joystick-stick"></div>
+        </div>
+      </div>
+
+      <!-- Botões de Ação à Direita -->
+      <div class="mobile-action-buttons">
+        <button id="btnMobileSprint" class="btn-touch btn-sprint" aria-label="Correr">
+          <span class="btn-touch-icon">🏃</span>
+          <span class="btn-touch-label">CORRER</span>
+        </button>
+        <button id="btnMobileInteract" class="btn-touch btn-interact" aria-label="Interagir">
+          <span class="btn-touch-icon">✋</span>
+          <span class="btn-touch-label">AÇÃO</span>
+        </button>
+        <button id="btnMobileSmoke" class="btn-touch btn-smoke" aria-label="Usar Fumaça">
+          <span class="btn-touch-icon">💨</span>
+          <span class="btn-touch-label">FUMAÇA</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ================= TELAS DE MENU E ESTADO ================= -->
+
+    <!-- Menu Principal / Inicial -->
+    <div id="menuScreen" class="overlay-screen">
+      <div class="menu-modal">
+        <div class="game-badge">TELA ÚNICA • 100% VANILLA JS</div>
+        <h1 class="game-title">FUGA DAS SOMBRAS</h1>
+        <p class="game-subtitle">Sobreviva ao labirinto misterioso enquanto uma criatura te persegue no escuro.</p>
+
+        <div class="menu-lore-box">
+          <p>Você acordou desorientado nas entranhas de um labirinto sombrio. Uma presença ancestral e implacável espreita nos corredores. Administre sua stamina, utilize esconderijos, colete itens de sobrevivência, desvende os segredos das paredes e encontre a chave para abrir os portões da saída antes que seja tarde.</p>
+        </div>
+
+        <!-- Seletor de Dificuldade -->
+        <div class="difficulty-section">
+          <h3>Selecione a Dificuldade:</h3>
+          <div class="difficulty-options">
+            <button class="btn-diff" data-difficulty="easy">
+              <span class="diff-title">FÁCIL</span>
+              <span class="diff-desc">Perseguidor lento, mais itens e esconderijos</span>
+            </button>
+            <button class="btn-diff active" data-difficulty="normal">
+              <span class="diff-title">NORMAL</span>
+              <span class="diff-desc">Equilíbrio perfeito de velocidade e recursos</span>
+            </button>
+            <button class="btn-diff" data-difficulty="hard">
+              <span class="diff-title">DIFÍCIL</span>
+              <span class="diff-desc">Perseguidor implacável, escuridão densa e poucos itens</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Informações de Recorde -->
+        <div class="records-panel">
+          <span>🏆 MELHOR TEMPO: <strong id="bestTimeDisplay">--:--</strong></span>
+        </div>
+
+        <button id="btnStartGame" class="btn-primary-action">
+          <span class="btn-text">INICIAR SOBREVIVÊNCIA</span>
+          <span class="btn-subtext">Clique para ativar áudio e começar</span>
+        </button>
+
+        <div class="menu-footer-tips">
+          <span>💡 Dica: Corra com <strong>Shift</strong>, interaja com <strong>E</strong> e esconda-se em armários quando ele estiver perto!</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tela de Vitória (Você Escapou!) -->
+    <div id="victoryScreen" class="overlay-screen hidden">
+      <div class="menu-modal victory-modal">
+        <div class="result-icon victory-icon">🚪✨</div>
+        <h2 class="victory-title">VOCÊ ESCAPOU!</h2>
+        <p class="result-desc">Você cruzou o portal e sobreviveu aos horrores do labirinto!</p>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">⏱️ Tempo da Fuga</span>
+            <span id="victoryTime" class="stat-value">01:45</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">🎒 Itens Coletados</span>
+            <span id="victoryItems" class="stat-value">5</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">📜 Dicas Encontradas</span>
+            <span id="victoryClues" class="stat-value">3</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">👣 Distância Percorrida</span>
+            <span id="victoryDistance" class="stat-value">420m</span>
+          </div>
+        </div>
+
+        <div id="newRecordBanner" class="new-record-banner hidden">
+          ⭐ NOVO RECORDE PESSOAL REGISTRADO! ⭐
+        </div>
+
+        <button id="btnPlayAgain" class="btn-primary-action">
+          <span>JOGAR NOVAMENTE</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Tela de Derrota (Você Foi Encontrado) -->
+    <div id="gameOverScreen" class="overlay-screen hidden">
+      <div class="menu-modal gameover-modal">
+        <div class="result-icon gameover-icon">💀</div>
+        <h2 class="gameover-title">VOCÊ FOI ENCONTRADO</h2>
+        <p class="result-desc">As sombras te alcançaram... Não há escapatória nesta rodada.</p>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">⏳ Tempo Sobrevivido</span>
+            <span id="defeatTime" class="stat-value">00:52</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">🎒 Itens Coletados</span>
+            <span id="defeatItems" class="stat-value">2</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">📜 Dicas Encontradas</span>
+            <span id="defeatClues" class="stat-value">1</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">👣 Distância Percorrida</span>
+            <span id="defeatDistance" class="stat-value">180m</span>
+          </div>
+        </div>
+
+        <button id="btnRetryGame" class="btn-primary-action btn-retry">
+          <span>TENTAR NOVAMENTE</span>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Script Principal do Jogo -->
+  <script src="script.js"></script>
+</body>
+</html>
