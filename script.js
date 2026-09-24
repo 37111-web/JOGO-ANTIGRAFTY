@@ -447,7 +447,7 @@
       nodeMap.set(key(start.x, start.y), startNode);
 
       let iterations = 0;
-      const maxIterations = 800; // Limite para garantir 60fps constante
+      const maxIterations = 3000; // Suporta mapas ampliados mantendo alta performance
 
       while (openSet.length > 0 && iterations++ < maxIterations) {
         // Encontra o nó com menor f
@@ -527,8 +527,8 @@
 
       // Configurações do Labirinto
       this.tileSize = 48;
-      this.cols = 29;
-      this.rows = 29;
+      this.cols = 47;
+      this.rows = 47;
       this.grid = [];
       this.difficulty = 'normal';
 
@@ -544,7 +544,8 @@
       this.player = {
         x: 0,
         y: 0,
-        radius: 14,
+        radius: 13,
+        collisionRadius: 10,
         speedWalk: 175,
         speedSprint: 275,
         currentSpeed: 175,
@@ -558,6 +559,7 @@
         isSprinting: false,
         isExhausted: false,
         isHiding: false,
+        isMoving: false,
         currentHidingSpot: null,
         walkAnimTimer: 0,
         idleTimer: 0,
@@ -687,6 +689,15 @@
         this.keys[e.key.toLowerCase()] = true;
         this.audio.resume();
 
+        // Se estiver na tela de vitória ou derrota, qualquer tecla de confirmação volta ao menu
+        if (this.gameState === 'victory' || this.gameState === 'gameover') {
+          if (e.code === 'Space' || e.key === 'Enter' || e.key === 'Escape') {
+            e.preventDefault();
+            this.returnToMenu();
+            return;
+          }
+        }
+
         if (e.key === 'Shift') this.player.isSprinting = true;
         if (e.key.toLowerCase() === 'e') this.handleInteraction();
         if (e.code === 'Space') {
@@ -709,11 +720,11 @@
       });
 
       this.dom.btnPlayAgain.addEventListener('click', () => {
-        this.startNewGame();
+        this.returnToMenu();
       });
 
       this.dom.btnRetryGame.addEventListener('click', () => {
-        this.startNewGame();
+        this.returnToMenu();
       });
 
       this.dom.btnAudioToggle.addEventListener('click', () => {
@@ -842,19 +853,19 @@
        INÍCIO DE UMA NOVA PARTIDA
        ======================================================================== */
     startNewGame() {
-      // Ajusta parâmetros de acordo com a dificuldade
+      // Ajusta parâmetros de acordo com a dificuldade (mapa ampliado)
       if (this.difficulty === 'easy') {
-        this.cols = 25;
-        this.rows = 25;
-        this.stalker.baseSpeed = 125;
+        this.cols = 37;
+        this.rows = 37;
+        this.stalker.baseSpeed = 120;
       } else if (this.difficulty === 'hard') {
-        this.cols = 33;
-        this.rows = 33;
-        this.stalker.baseSpeed = 188;
+        this.cols = 57;
+        this.rows = 57;
+        this.stalker.baseSpeed = 185;
       } else {
-        this.cols = 29;
-        this.rows = 29;
-        this.stalker.baseSpeed = 158;
+        this.cols = 47;
+        this.rows = 47;
+        this.stalker.baseSpeed = 155;
       }
       this.stalker.speed = this.stalker.baseSpeed;
 
@@ -868,6 +879,7 @@
       this.player.stamina = 100;
       this.player.isHiding = false;
       this.player.isExhausted = false;
+      this.player.isMoving = false;
       this.player.idleTimer = 0;
       this.player.distanceTraveled = 0;
 
@@ -936,7 +948,7 @@
 
       // Distribui Esconderijos (Armários)
       this.hidingSpots = [];
-      const numHiding = this.difficulty === 'easy' ? 9 : (this.difficulty === 'hard' ? 4 : 6);
+      const numHiding = this.difficulty === 'easy' ? 16 : (this.difficulty === 'hard' ? 8 : 12);
       let freeTiles = [];
       for (let y = 1; y < this.rows - 1; y++) {
         for (let x = 1; x < this.cols - 1; x++) {
@@ -961,7 +973,7 @@
       // Distribui Itens pelo Labirinto
       this.items = [];
       const itemTypes = ['flashlight', 'energy', 'medkit', 'compass', 'smoke'];
-      const totalItems = this.difficulty === 'easy' ? 14 : (this.difficulty === 'hard' ? 7 : 10);
+      const totalItems = this.difficulty === 'easy' ? 24 : (this.difficulty === 'hard' ? 12 : 18);
 
       for (let i = 0; i < Math.min(totalItems, freeTiles.length); i++) {
         const t = freeTiles.pop();
@@ -1228,22 +1240,20 @@
 
         this.player.currentSpeed = speed;
 
-        // Movimentação com resolução de colisão independente em X e Y (evita agarrar em cantos)
-        const moveX = (inputX / length) * speed * dt;
-        const moveY = (inputY / length) * speed * dt;
+        // Movimentação suave com assistência em quinas e prevenção contra emperramento
+        const prevX = this.player.x;
+        const prevY = this.player.y;
+        this.player.isMoving = true;
 
-        if (!this.checkWallCollision(this.player.x + moveX, this.player.y, this.player.radius)) {
-          this.player.x += moveX;
-        }
-        if (!this.checkWallCollision(this.player.x, this.player.y + moveY, this.player.radius)) {
-          this.player.y += moveY;
-        }
+        this.movePlayerWithCollision(inputX / length, inputY / length, speed, dt);
 
         // Distância percorrida e som de passos
-        const distStep = Math.hypot(moveX, moveY);
+        const distStep = Math.hypot(this.player.x - prevX, this.player.y - prevY);
         this.player.distanceTraveled += distStep;
-        this.player.walkAnimTimer += dt * (speed / 100);
-        this.audio.playFootstep();
+        if (distStep > 0.05) {
+          this.player.walkAnimTimer += dt * (speed / 100);
+          this.audio.playFootstep();
+        }
 
         // Partículas sutis de poeira nas pegadas
         if (Math.random() < 0.2) {
@@ -1259,6 +1269,7 @@
           });
         }
       } else {
+        this.player.isMoving = false;
         // Recuperação de Stamina parado
         this.player.stamina = Math.min(this.player.maxStamina, this.player.stamina + 25 * dt);
         if (this.player.stamina > 25) this.player.isExhausted = false;
@@ -1271,6 +1282,130 @@
           if (this.stalker.state !== 'blinded') {
             this.stalker.state = 'chase';
             this.stalker.speed = this.stalker.rageSpeed;
+          }
+        }
+      }
+    }
+
+    // Movimentação suave com assistência em quinas e deslizamento em paredes
+    movePlayerWithCollision(dirX, dirY, speed, dt) {
+      const colRadius = this.player.collisionRadius || 10;
+      const totalDist = speed * dt;
+      const moveX = dirX * totalDist;
+      const moveY = dirY * totalDist;
+
+      // 1. Eixo X
+      if (Math.abs(moveX) > 0.0001) {
+        if (!this.checkWallCollision(this.player.x + moveX, this.player.y, colRadius)) {
+          this.player.x += moveX;
+        } else {
+          // Assistência de quina: desliza suavemente em Y para entrar no corredor
+          const cornerNudge = this.findCornerNudgeY(this.player.x + moveX, this.player.y, colRadius);
+          if (cornerNudge !== 0 && Math.abs(dirY) < 0.4) {
+            const nudgeDist = cornerNudge * speed * dt * 0.85;
+            if (!this.checkWallCollision(this.player.x, this.player.y + nudgeDist, colRadius)) {
+              this.player.y += nudgeDist;
+            }
+          }
+          // Avanço contínuo até encostar na parede
+          this.sweepAxisX(moveX, colRadius);
+        }
+      }
+
+      // 2. Eixo Y
+      if (Math.abs(moveY) > 0.0001) {
+        if (!this.checkWallCollision(this.player.x, this.player.y + moveY, colRadius)) {
+          this.player.y += moveY;
+        } else {
+          // Assistência de quina: desliza suavemente em X para entrar no corredor
+          const cornerNudge = this.findCornerNudgeX(this.player.x, this.player.y + moveY, colRadius);
+          if (cornerNudge !== 0 && Math.abs(dirX) < 0.4) {
+            const nudgeDist = cornerNudge * speed * dt * 0.85;
+            if (!this.checkWallCollision(this.player.x + nudgeDist, this.player.y, colRadius)) {
+              this.player.x += nudgeDist;
+            }
+          }
+          // Avanço contínuo até encostar na parede
+          this.sweepAxisY(moveY, colRadius);
+        }
+      }
+
+      // 3. Resolução ativa de penetração contra paredes
+      this.resolveWallPenetration(this.player, colRadius);
+    }
+
+    findCornerNudgeY(targetX, curY, radius) {
+      const offsets = [4, 8, 12, 16];
+      for (const off of offsets) {
+        if (!this.checkWallCollision(targetX, curY - off, radius)) return -1;
+        if (!this.checkWallCollision(targetX, curY + off, radius)) return 1;
+      }
+      return 0;
+    }
+
+    findCornerNudgeX(curX, targetY, radius) {
+      const offsets = [4, 8, 12, 16];
+      for (const off of offsets) {
+        if (!this.checkWallCollision(curX - off, targetY, radius)) return -1;
+        if (!this.checkWallCollision(curX + off, targetY, radius)) return 1;
+      }
+      return 0;
+    }
+
+    sweepAxisX(desiredMoveX, radius) {
+      const sign = Math.sign(desiredMoveX);
+      let step = Math.abs(desiredMoveX);
+      let currentX = this.player.x;
+      for (let i = 0; i < 4; i++) {
+        step /= 2;
+        if (!this.checkWallCollision(currentX + sign * step, this.player.y, radius)) {
+          currentX += sign * step;
+        }
+      }
+      this.player.x = currentX;
+    }
+
+    sweepAxisY(desiredMoveY, radius) {
+      const sign = Math.sign(desiredMoveY);
+      let step = Math.abs(desiredMoveY);
+      let currentY = this.player.y;
+      for (let i = 0; i < 4; i++) {
+        step /= 2;
+        if (!this.checkWallCollision(this.player.x, currentY + sign * step, radius)) {
+          currentY += sign * step;
+        }
+      }
+      this.player.y = currentY;
+    }
+
+    resolveWallPenetration(entity, radius) {
+      const minTileX = Math.floor((entity.x - radius - 2) / this.tileSize);
+      const maxTileX = Math.floor((entity.x + radius + 2) / this.tileSize);
+      const minTileY = Math.floor((entity.y - radius - 2) / this.tileSize);
+      const maxTileY = Math.floor((entity.y + radius + 2) / this.tileSize);
+
+      for (let ty = minTileY; ty <= maxTileY; ty++) {
+        for (let tx = minTileX; tx <= maxTileX; tx++) {
+          if (tx < 0 || tx >= this.cols || ty < 0 || ty >= this.rows || this.grid[ty][tx] === 1) {
+            const nearestX = Math.max(tx * this.tileSize, Math.min(entity.x, (tx + 1) * this.tileSize));
+            const nearestY = Math.max(ty * this.tileSize, Math.min(entity.y, (ty + 1) * this.tileSize));
+            const distX = entity.x - nearestX;
+            const distY = entity.y - nearestY;
+            const distSq = distX * distX + distY * distY;
+            if (distSq < radius * radius && distSq > 0.0001) {
+              const dist = Math.sqrt(distSq);
+              const overlap = radius - dist;
+              entity.x += (distX / dist) * overlap;
+              entity.y += (distY / dist) * overlap;
+            } else if (distSq <= 0.0001) {
+              const tileCenterX = (tx + 0.5) * this.tileSize;
+              const tileCenterY = (ty + 0.5) * this.tileSize;
+              const pushX = entity.x - tileCenterX || 1;
+              const pushY = entity.y - tileCenterY || 0;
+              const pushLen = Math.hypot(pushX, pushY);
+              entity.x += (pushX / pushLen) * 1.5;
+              entity.y += (pushY / pushLen) * 1.5;
+            }
           }
         }
       }
@@ -1838,27 +1973,144 @@
       ctx.translate(this.player.x, this.player.y);
       ctx.rotate(this.player.angle);
 
-      // Animação de caminhada com balanço
-      const sway = Math.sin(this.player.walkAnimTimer * 8) * 2;
+      // Animação de caminhada viva para o bonequinho
+      const isMoving = this.player.isMoving;
+      const walkTime = this.player.walkAnimTimer;
+      const legSwing = isMoving ? Math.sin(walkTime * 12) * 6 : 0;
+      const armSwing = isMoving ? Math.sin(walkTime * 12) * 4 : 0;
+      const bodyBob = isMoving ? Math.abs(Math.sin(walkTime * 12)) * 1.2 : 0;
 
-      // Corpo do Jogador
-      ctx.fillStyle = '#0284c7';
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
+      // 1. Sombra suave de contato no chão
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
       ctx.beginPath();
-      ctx.arc(0, sway, this.player.radius, 0, Math.PI * 2);
+      ctx.ellipse(-1, 0, 11, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 2. Pernas e Botas animadas do bonequinho (passos alternados)
+      // Perna e Bota Esquerda
+      ctx.fillStyle = '#1e293b'; // Calça tática
+      ctx.fillRect(-6 + legSwing, -8, 8, 4);
+      ctx.fillStyle = '#475569'; // Bota
+      ctx.beginPath();
+      ctx.arc(2 + legSwing, -6, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a'; // Ponta da bota
+      ctx.fillRect(1.5 + legSwing, -7.8, 2, 3.6);
+
+      // Perna e Bota Direita
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-6 - legSwing, 4, 8, 4);
+      ctx.fillStyle = '#475569';
+      ctx.beginPath();
+      ctx.arc(2 - legSwing, 6, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(1.5 - legSwing, 4.2, 2, 3.6);
+
+      // 3. Mochila de Sobrevivente nas costas
+      ctx.fillStyle = '#78350f'; // Couro marrom
+      ctx.strokeStyle = '#451a03';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.rect(-11, -5.5, 6, 11);
       ctx.fill();
       ctx.stroke();
 
-      // Cabeça / Visor
-      ctx.fillStyle = '#f8fafc';
+      // Detalhes da fivela da mochila
+      ctx.fillStyle = '#fbbf24';
+      ctx.fillRect(-10, -1.5, 2, 3);
+
+      // 4. Tronco / Jaqueta de Explorador (ombros e corpo)
+      ctx.fillStyle = '#0284c7'; // Azul vibrante
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.arc(6, sway, 4, 0, Math.PI * 2);
+      ctx.ellipse(-1, 0, 6, 8 + bodyBob * 0.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Cinto / coldre
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-2, -7.5, 2.5, 15);
+
+      // 5. Braço e Mão Esquerda (balanço natural na caminhada)
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.arc(-armSwing * 0.4, -7.5, 3, 0, Math.PI * 2);
+      ctx.fill();
+      // Mão esquerda
+      ctx.fillStyle = '#fed7aa'; // Tom de pele
+      ctx.beginPath();
+      ctx.arc(2.5 - armSwing, -8, 2.6, 0, Math.PI * 2);
       ctx.fill();
 
-      // Indicador da Lanterna na mão
-      ctx.fillStyle = '#fbbf24';
-      ctx.fillRect(8, sway - 2, 6, 4);
+      // 6. Braço Direito segurando a Lanterna para frente
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.arc(2 + armSwing * 0.3, 7.5, 3, 0, Math.PI * 2);
+      ctx.fill();
+      // Mão direita
+      ctx.fillStyle = '#fed7aa';
+      ctx.beginPath();
+      ctx.arc(6.5 + armSwing * 0.2, 7.5, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Lanterna 3D estilizada
+      ctx.fillStyle = '#334155'; // Corpo da lanterna
+      ctx.fillRect(7, 5.5, 8, 4);
+      ctx.fillStyle = '#94a3b8'; // Anel metálico
+      ctx.fillRect(14, 5, 2, 5);
+      // Lente brilhante amarela
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(15.5, 5.2, 1.8, 4.6);
+
+      // 7. Cabeça e Rosto do Bonequinho
+      // Orelhas
+      ctx.fillStyle = '#fed7aa';
+      ctx.beginPath();
+      ctx.arc(1, -6.8, 1.8, 0, Math.PI * 2);
+      ctx.arc(1, 6.8, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cabeça (círculo com tom de pele)
+      ctx.fillStyle = '#fed7aa';
+      ctx.strokeStyle = '#fcd34d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(1.5, 0, 6.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Boné de aventureiro com aba frontal
+      ctx.fillStyle = '#0f172a'; // Copa do boné
+      ctx.beginPath();
+      ctx.arc(0.5, 0, 6.5, Math.PI * 0.5, Math.PI * 1.5);
+      ctx.fill();
+      // Aba do boné apontando para onde o personagem olha
+      ctx.fillStyle = '#0369a1';
+      ctx.beginPath();
+      ctx.ellipse(4, 0, 4.2, 3.2, 0, -Math.PI / 2, Math.PI / 2);
+      ctx.fill();
+
+      // Olhos do bonequinho
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(4.2, -2.6, 1.8, 0, Math.PI * 2);
+      ctx.arc(4.2, 2.6, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pupilas pretas olhando para frente
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.arc(4.9, -2.6, 1.1, 0, Math.PI * 2);
+      ctx.arc(4.9, 2.6, 1.1, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ponto de brilho expressivo no olhar
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(5.3, -2.9, 0.45, 0, Math.PI * 2);
+      ctx.arc(5.3, 2.3, 0.45, 0, Math.PI * 2);
+      ctx.fill();
 
       ctx.restore();
     }
@@ -2176,6 +2428,19 @@
       document.getElementById('defeatItems').textContent = this.stats.itemsCollected;
       document.getElementById('defeatClues').textContent = this.stats.cluesRead;
       document.getElementById('defeatDistance').textContent = `${Math.round(this.player.distanceTraveled / 48)}m`;
+    }
+
+    returnToMenu() {
+      this.gameState = 'menu';
+      this.audio.stopAll();
+      this.dom.victoryScreen.classList.add('hidden');
+      this.dom.gameOverScreen.classList.add('hidden');
+      this.dom.hud.classList.add('hidden');
+      this.dom.menuScreen.classList.remove('hidden');
+      this.dom.dangerOverlay.classList.remove('active');
+      this.dom.wrapper.classList.remove('shaking');
+      this.dom.hidingDarkness.classList.remove('active');
+      this.updateRecordsUI();
     }
   }
 
